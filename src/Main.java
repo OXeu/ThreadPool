@@ -2,7 +2,9 @@ import java.io.IOException;
 
 public class Main {
     public static void main(String[] args) {
-        ThreadPool threadPool = new ThreadPool();
+        ThreadPool threadPool = new ThreadPool(5,10,5000,runnable -> {
+            System.out.println("Runnable: " + runnable + " was rejected.");
+        });
         Monitor monitor = new Monitor(threadPool);
         new Thread(() -> {
             try {

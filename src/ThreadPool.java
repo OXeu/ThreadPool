@@ -11,15 +11,19 @@ public class ThreadPool {
     private final Queue<Runnable> workQueue = new ArrayDeque<>(CAPACITY);
     private final ArrayList<Thread> threads = new ArrayList<>();
     private final int timeout;
+    private final RejectedExecutionHandler rejectedExecutionHandler;
 
     ThreadPool() {
-        this(5, 10, 5000);
+        this(5, 10, 5000, runnable -> {
+            throw new RuntimeException("Runnable: " + runnable + " was rejected.");
+        });
     }
 
-    ThreadPool(int coreThreadNum, int maxThreadNum, int timeout) {
+    ThreadPool(int coreThreadNum, int maxThreadNum, int timeout, RejectedExecutionHandler rejectedExecutionHandler) {
         this.coreThreadNum = coreThreadNum;
         this.maxThreadNum = maxThreadNum;
         this.timeout = timeout;
+        this.rejectedExecutionHandler = rejectedExecutionHandler;
     }
 
     public void push(Runnable runnable) throws InterruptedException {
@@ -29,9 +33,14 @@ public class ThreadPool {
             }
         }
         synchronized (workQueue) {
-            if (threads.size() < maxThreadNum && workQueue.size() >= CAPACITY) {
-                createThread();
-                workQueue.wait(); // 释放工作队列锁让刚创建的线程能够从队列中取出数据
+            if (workQueue.size() >= CAPACITY) {
+                if (threads.size() < maxThreadNum) {
+                    createThread();
+                    workQueue.wait(); // 释放工作队列锁让刚创建的线程能够从队列中取出数据
+                } else {
+                    rejectedExecutionHandler.rejectedExecution(runnable);
+                    return;
+                }
             }
             workQueue.add(runnable);
             workQueue.notify();
@@ -84,5 +93,9 @@ public class ThreadPool {
 
     public ArrayList<Thread> getThreads() {
         return threads;
+    }
+
+    public interface RejectedExecutionHandler {
+        void rejectedExecution(Runnable r);
     }
 }
