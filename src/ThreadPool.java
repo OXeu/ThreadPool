@@ -1,7 +1,6 @@
-import com.sun.jmx.remote.internal.ArrayQueue;
-
+import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Collection;
+import java.util.Queue;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class ThreadPool {
@@ -9,16 +8,18 @@ public class ThreadPool {
     private final int maxThreadNum;
     private final AtomicInteger idleCount = new AtomicInteger(0);
     private final static int CAPACITY = 20;
-    private final ArrayQueue<Runnable> workQueue = new ArrayQueue<>(CAPACITY);
+    private final Queue<Runnable> workQueue = new ArrayDeque<>(CAPACITY);
     private final ArrayList<Thread> threads = new ArrayList<>();
+    private final int timeout;
 
     ThreadPool() {
-        this(5, 10);
+        this(5, 10, 5000);
     }
 
-    ThreadPool(int coreThreadNum, int maxThreadNum) {
+    ThreadPool(int coreThreadNum, int maxThreadNum, int timeout) {
         this.coreThreadNum = coreThreadNum;
         this.maxThreadNum = maxThreadNum;
+        this.timeout = timeout;
     }
 
     public void push(Runnable runnable) throws InterruptedException {
@@ -39,6 +40,8 @@ public class ThreadPool {
 
     synchronized void createThread() {
         Thread t = new Thread(() -> {
+            ThreadLocal<Boolean> isActiveLocal = new ThreadLocal<>();
+            isActiveLocal.set(true);
             while (true) {
                 Runnable runnable;
                 synchronized (workQueue) {
@@ -46,14 +49,20 @@ public class ThreadPool {
                         try {
                             System.out.println(Thread.currentThread().getId() + ": Waiting");
                             idleCount.incrementAndGet();
-                            workQueue.wait();
+                            isActiveLocal.set(false);
+                            workQueue.wait(timeout);
+                            isActiveLocal.set(true);
+                            idleCount.decrementAndGet();
+                            if (workQueue.isEmpty() && idleCount.get() >= coreThreadNum) {
+                                threads.remove(Thread.currentThread());
+                                return;
+                            }
                         } catch (InterruptedException e) {
                             throw new RuntimeException(e);
                         }
-                        idleCount.decrementAndGet();
                         System.out.println(Thread.currentThread().getId() + ": Wake up");
                     }
-                    runnable = workQueue.remove(0);
+                    runnable = workQueue.poll();
                     workQueue.notify(); // 队列满时只有 push 方法在等待，唤醒该方法让新的任务添加到队列中
                 }
                 if (runnable != null) {
@@ -65,7 +74,7 @@ public class ThreadPool {
         t.start();
     }
 
-    public ArrayQueue<Runnable> getQueue() {
+    public Queue<Runnable> getQueue() {
         return workQueue;
     }
 
