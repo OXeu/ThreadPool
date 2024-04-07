@@ -1,48 +1,48 @@
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Queue;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class ThreadPool {
     private final int coreThreadNum;
     private final int maxThreadNum;
-    private final AtomicInteger idleCount = new AtomicInteger(0);
-    private final static int CAPACITY = 20;
-    private final Queue<Runnable> workQueue = new ArrayDeque<>(CAPACITY);
+    final AtomicInteger idleCount = new AtomicInteger(0);
+    private final int capacity;
+    private final BlockingQueue<Runnable> workQueue;
     private final ArrayList<Thread> threads = new ArrayList<>();
     private final int timeout;
     private final RejectedExecutionHandler rejectedExecutionHandler;
 
     ThreadPool() {
-        this(5, 10, 5000, runnable -> {
+        this(5, 10, 5000, 20, new ArrayBlockingQueue<>(20), runnable -> {
             throw new RuntimeException("Runnable: " + runnable + " was rejected.");
         });
     }
 
-    ThreadPool(int coreThreadNum, int maxThreadNum, int timeout, RejectedExecutionHandler rejectedExecutionHandler) {
+    ThreadPool(int coreThreadNum, int maxThreadNum, int timeout, int capacity, BlockingQueue<Runnable> workQueue, RejectedExecutionHandler rejectedExecutionHandler) {
         this.coreThreadNum = coreThreadNum;
         this.maxThreadNum = maxThreadNum;
         this.timeout = timeout;
         this.rejectedExecutionHandler = rejectedExecutionHandler;
+        this.workQueue = workQueue;
+        this.capacity = capacity;
     }
 
     public void push(Runnable runnable) throws InterruptedException {
-        if (idleCount.get() <= 0) {
-            if (threads.size() < coreThreadNum) {
+        if (threads.size() < coreThreadNum) {
+            createThread();
+        }
+        if (workQueue.size() >= capacity) {
+            if (threads.size() < maxThreadNum) {
                 createThread();
+            } else {
+                rejectedExecutionHandler.rejectedExecution(runnable);
+                return;
             }
         }
+        workQueue.put(runnable);
         synchronized (workQueue) {
-            if (workQueue.size() >= CAPACITY) {
-                if (threads.size() < maxThreadNum) {
-                    createThread();
-                    workQueue.wait(); // 释放工作队列锁让刚创建的线程能够从队列中取出数据
-                } else {
-                    rejectedExecutionHandler.rejectedExecution(runnable);
-                    return;
-                }
-            }
-            workQueue.add(runnable);
             workQueue.notify();
         }
     }
@@ -54,7 +54,8 @@ public class ThreadPool {
             while (true) {
                 Runnable runnable;
                 synchronized (workQueue) {
-                    while (workQueue.isEmpty()) {
+                    runnable = workQueue.poll();
+                    while (runnable == null) {
                         try {
                             System.out.println(Thread.currentThread().getId() + ": Waiting");
                             idleCount.incrementAndGet();
@@ -62,7 +63,8 @@ public class ThreadPool {
                             workQueue.wait(timeout);
                             isActiveLocal.set(true);
                             idleCount.decrementAndGet();
-                            if (workQueue.isEmpty() && idleCount.get() >= coreThreadNum) {
+                            runnable = workQueue.poll();
+                            if (runnable == null && idleCount.get() >= coreThreadNum) {
                                 threads.remove(Thread.currentThread());
                                 return;
                             }
@@ -71,12 +73,9 @@ public class ThreadPool {
                         }
                         System.out.println(Thread.currentThread().getId() + ": Wake up");
                     }
-                    runnable = workQueue.poll();
                     workQueue.notify(); // 队列满时只有 push 方法在等待，唤醒该方法让新的任务添加到队列中
                 }
-                if (runnable != null) {
-                    runnable.run();
-                }
+                runnable.run();
             }
         });
         threads.add(t);

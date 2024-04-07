@@ -22,7 +22,8 @@ public class Monitor {
             TextGraphics textGraphics = screen.newTextGraphics();
             textGraphics.putString(0, 0, "Queue size: " + threadPool.getQueue().size());
             textGraphics.putString(0, 1, "Active threads: " + threadPool.getActiveCount());
-            int row = 2;
+            textGraphics.putString(0, 2, "Idle threads: " + threadPool.idleCount.get());
+            int row = 3;
             for (Thread thread : threadPool.getThreads()) {
                 textGraphics.putString(0, row++, "Thread: " + thread.getName() + ", State: " + thread.getState().name());
             }

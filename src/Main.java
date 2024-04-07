@@ -1,8 +1,9 @@
 import java.io.IOException;
+import java.util.concurrent.ArrayBlockingQueue;
 
 public class Main {
     public static void main(String[] args) {
-        ThreadPool threadPool = new ThreadPool(5,10,5000,runnable -> {
+        ThreadPool threadPool = new ThreadPool(5, 10, 5000, 20, new ArrayBlockingQueue<>(20), runnable -> {
             System.out.println("Runnable: " + runnable + " was rejected.");
         });
         Monitor monitor = new Monitor(threadPool);
